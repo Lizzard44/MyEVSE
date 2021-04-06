@@ -1,7 +1,7 @@
 // S:\Software\Ampel\EVSE\EVSE.ino
 // First define the library :
 
-#define NOSIM
+//#define SIM
 //#define SERIELL
 //#define SERIELL_LOOP
 
@@ -23,7 +23,7 @@ void MyReset(void) {
    SPI SCK     SCK          13 / ICSP-3   52        D13        ICSP-3           15
 */
 
-#ifdef NOSIM
+#ifndef SIM
 #include <MFRC522.h>
 #define SS_PIN 10
 #define RST_PIN 9
@@ -44,15 +44,18 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 //bool buttonState;
 
 // Musik
-#define tonepin (8) // Lautsprecher
-#define ledPin  (6) // LED am RFID Leser
-#define EVSELED (7) // READY LED
+#define TSL_Box (2) // Tesla Wallbox
 #define EVSE_AN (3) // Taster zum stoppen
 #define Relais1 (4) // Controler
 #define Relais2 (5) // CP Leitung
+#define ledPin  (6) // LED am RFID Leser
+#define EVSELED (7) // READY LED
+#define tonepin (8) // Lautsprecher
 #define I_PP    A0 // Zur Messung des Widerstandswertes im Typ2-Stecker, welcher die Belastbarkeit des Ladekabels kodiert.
 #define I_CP    A1 // Zur Messung der Spannung am Control Pilot von 0V bis +12V, d.h. zur Erkennung des Status des Elektroautos.
+#ifdef STROM_MESSEN
 #define L_Strom A2 // Zur Messung der Spannung am Control Pilot von 0V bis +12V, d.h. zur Erkennung des Status des Elektroautos.
+#endif
 
 String inputString;   // a String to hold incoming data
 boolean inputComplete = true;  // whether the string is complete
@@ -69,6 +72,7 @@ long anzloop = 0;
 
 
 void load_stop() {
+  screen_init();
   delay(250);
   digitalWrite (EVSE_AN, HIGH);
   delay(250);
@@ -82,7 +86,8 @@ void load_stop() {
   delay(10000);
 }
 
-#define AnzMess 10
+// 24.11.2019 von 10 auf 30 gesetzt, ist noch nicht aufgespielt !!!
+#define AnzMess 30
 
 // CP-Spannung (positive Messung):
 #define PLUS_12V       0
@@ -111,11 +116,11 @@ void CP() {
   print_volt(messwert);
 #endif
 
-  CP_Spannung = CP_OFF;
-  if (messwert > 610 && messwert < 840) CP_Spannung = PLUS_12V;
-  if (messwert > 400 && messwert < 610) CP_Spannung = PLUS_9V;
-  if (messwert > 180 && messwert < 400) CP_Spannung = PLUS_6V;
-  if (messwert < 45) CP_Spannung = CP_ERROR;
+  CP_Spannung = CP_ERROR;
+  if (messwert > 520 && messwert < 600) CP_Spannung = PLUS_12V;
+  if (messwert > 330 && messwert < 500) CP_Spannung = PLUS_9V;
+  if (messwert > 90 && messwert < 320) CP_Spannung = PLUS_6V;
+  if (messwert < 50) CP_Spannung = CP_OFF;
 }
 
 // Stromstaerke:
@@ -129,7 +134,7 @@ byte Kabel;
 int Kabel_Wert;
 byte lastKabel;
 
-// Diese Funktion misst den PP-Kontakt, wie stark das Ladekabel belastet werden darf und gibt die entsprechende max. Stromst�rke aus:
+// Diese Funktion misst den PP-Kontakt, wie stark das Ladekabel belastet werden darf und gibt die entsprechende max. Stromstï¿½rke aus:
 void Ladekabel() {
   uint16_t messwert = 0;
   int i = AnzMess;
@@ -145,15 +150,15 @@ void Ladekabel() {
   print_volt(messwert);
 #endif
 
-  if (messwert < 660) Kabel = STROM_32A;       // Widerstand 220 Ohm oder 100 Ohm --> Kabel darf mit 32A belastet werden.
-  else if (messwert < 1350) Kabel = STROM_20A; // Widerstand 680 Ohm --> Kabel darf mit 20A belastet werden.
-  else if (messwert < 1650) Kabel = STROM_16A; // Widerstand 1  kOhm --> Kabel darf mit 16A belastet werden.
-  else if (messwert < 1950) Kabel = STROM_14A; // Widerstand 1,5 kOhm --> Kabel darf mit 14A belastet werden (eigentlich nur 13A, aber das passt).
+  if (messwert < 220) Kabel = STROM_32A;       // Widerstand 220 Ohm oder 100 Ohm --> Kabel darf mit 32A belastet werden.
+  else if (messwert < 680) Kabel = STROM_20A; // Widerstand 680 Ohm --> Kabel darf mit 20A belastet werden.
+  else if (messwert < 1024) Kabel = STROM_16A; // Widerstand 1  kOhm --> Kabel darf mit 16A belastet werden.
+  else if (messwert < 1500) Kabel = STROM_14A; // Widerstand 1,5 kOhm --> Kabel darf mit 14A belastet werden (eigentlich nur 13A, aber das passt).
   else Kabel = STROM_NO;                       // Kein Ladekabel angeschlossen.
 }
 
 #ifdef STROM_MESSEN
-// Diese Funktion misst den Strom über L1
+// Diese Funktion misst den Strom Ã¼ber L1
 void Ladestrom() {
   uint16_t messwert = 0;
   float amps, kwh;
@@ -188,7 +193,7 @@ void rfid_read()
   char code_s[12];
   int Wait = 1000;
 
-#ifdef NOSIM
+#ifndef SIM
   if ( ! mfrc522.PICC_IsNewCardPresent()) return;
   if ( ! mfrc522.PICC_ReadCardSerial()) return;
 #endif
@@ -196,9 +201,7 @@ void rfid_read()
   beep();
   anzloop = 0;
 
-#ifdef NOSIM
-  screen_init();
-
+#ifndef SIM
   for (byte i = 0; i < mfrc522.uid.size; i++)
   {
     code = ((code + mfrc522.uid.uidByte[i]) * 10 );
@@ -210,7 +213,7 @@ void rfid_read()
 #endif
   sprintf(code_s, "%10.10ld", code);
 
-#ifdef NOSIM
+#ifndef SIM
 #ifdef SERIELL
   Serial.print(F("Card UID:"));
   for (byte i = 0; i < mfrc522.uid.size; i++) {
@@ -285,11 +288,11 @@ void rfid_read()
     Wait = 1000;
   } else
   {
-#ifdef NOSIM
+#ifndef SIM
     ssd1306_clearScreen();
 #endif
     if ( code == 735600 ) {
-#ifdef NOSIM
+#ifndef SIM
       sprintf(output, "MasterCard:");
       ssd1306_printFixed2x(2, 0, output, STYLE_NORMAL);
       sprintf(output, "%ld", code);
@@ -309,7 +312,7 @@ void rfid_read()
       Wallbox = 1;
       lacocaratscha();
     } else {
-#ifdef NOSIM
+#ifndef SIM
       sprintf(output, "Card:");
       ssd1306_printFixed2x(2, 0, output, STYLE_NORMAL);
       sprintf(output, "%ld", code);
@@ -320,14 +323,14 @@ void rfid_read()
       sirene();
       Serial.println("#SR");
       delay(5000);
-#ifdef NOSIM
+#ifndef SIM
       ssd1306_clearScreen();
 #endif
       Wait = 1000;
     }
   }
 
-#ifdef NOSIM
+#ifndef SIM
   ssd1306_clearScreen();
   sprintf(output, "Card:");
   ssd1306_printFixed2x(2, 0, output, STYLE_NORMAL);
@@ -357,7 +360,7 @@ void rfid_read()
 
 }
 
-#ifdef NOSIM
+#ifndef SIM
 void screen_init() {
   ssd1306_clearScreen();
   ssd1306_normalMode();
@@ -368,14 +371,14 @@ void screen_init() {
 #endif
 
 void Typ2_Status() {
-      Ladekabel();
-      Serial.print("#KW");
-      Serial.println(Kabel_Wert, DEC);
-      CP();
-      Serial.print("#PW");
-      Serial.println(CP_Spannung_Wert, DEC);
+  Ladekabel();
+  Serial.print("#KW");
+  Serial.println(Kabel_Wert, DEC);
+  CP();
+  Serial.print("#PW");
+  Serial.println(CP_Spannung_Wert, DEC);
 #ifdef STROM_MESSEN
-      Ladestrom();
+  Ladestrom();
 #endif
 }
 void read_command() {
@@ -391,11 +394,22 @@ void read_command() {
         digitalWrite (Relais2, LOW);
         delay(100);
         digitalWrite (EVSELED, HIGH);
+        Serial.print("#N");
+        if ( Control > 1 ) {
+          sprintf(code_s, "%10.10ld", Control);
+        } else if ( Wallbox > 2 ) {
+          sprintf(code_s, "%10.10ld", Wallbox);
+        } else sprintf(code_s, "%10.10ld", 0L);
+        Serial.println(code_s);
+        delay(500);
         Serial.println("#W1");
         Wallbox = Control;
         delay(1000);
         Typ2_Status();
-      } else Serial.println("#W0");
+      } else if ( Wallbox > 2 ) {
+        Serial.println("#W1");
+      } else
+        Serial.println("#W0");
     }
     if ( inputString.indexOf("On ") == 0 ) {
       inputString.replace("On ", "");
@@ -443,10 +457,23 @@ void read_command() {
         Wallbox = 2;
         inputString = "";
         inputComplete = false;
-        anzloop = 1680;
+        anzloop = 0;
         return;
-      } else {
+      }
+      if ( Control > 1 ) {
         Serial.println("#C1");
+        delay(500);
+      }
+      else {
+        Serial.println("#C0");
+        delay(500);
+      }
+      if ( Wallbox > 2 ) {
+        Serial.println("#W1");
+        delay(500);
+      }
+      else {
+        Serial.println("#W0");
         delay(500);
       }
     }
@@ -495,7 +522,7 @@ void read_command() {
     if ( inputString.indexOf("Query") == 0 ) Typ2_Status();
     if ( inputString.indexOf("Help") == 0 ) {
       Serial.print("Help; ");
-      Serial.print("Reset; ");
+      // Serial.print("Reset; ");
       Serial.print("Init; ");
       Serial.print("Query; ");
       Serial.print("On Nr; ");
@@ -508,8 +535,7 @@ void read_command() {
     }
     inputString = "";
     inputComplete = false;
-    anzloop = 0;
-#ifdef NOSIM
+#ifndef SIM
     screen_init();
 #endif
   }
@@ -561,7 +587,7 @@ void setup()
   randomSeed(0L);
 
 
-#ifdef NOSIM
+#ifndef SIM
   ssd1306_128x64_i2c_init();
   /* Select the font to use with menu and all font functions */
   ssd1306_setFixedFont(ssd1306xled_font6x8);
@@ -603,7 +629,7 @@ void setup()
   beep();
   delay(2000);
 
-#ifdef NOSIM
+#ifndef SIM
   // ssd1306_clearScreen();
 #endif
 }
@@ -669,17 +695,8 @@ void loop() {
       if ( lastSpannung != CP_Spannung ) {
         Serial.print("#P");
         Serial.println(CP_Spannung, DEC);
-        ssd1306_clearScreen();
-        if ( CP_Spannung == CP_OFF ) {
-          ssd1306_printFixedN(0, OLED_hight, "CPOFF", STYLE_NORMAL, FONT_SIZE_4X);
-        } else if ( CP_Spannung == PLUS_12V ) {
-          ssd1306_printFixedN(0, OLED_hight, "CP ON", STYLE_NORMAL, FONT_SIZE_4X);
-        } else if ( CP_Spannung == PLUS_9V ) {
-          ssd1306_printFixedN(0, OLED_hight, " CAR ", STYLE_NORMAL, FONT_SIZE_4X);
-        } else if ( CP_Spannung == PLUS_6V ) {
-          ssd1306_printFixedN(0, OLED_hight, "LOAD ", STYLE_NORMAL, FONT_SIZE_4X);
-        }
       }
+
       lastSpannung = CP_Spannung;
       Serial.print("#PW");
       Serial.println(CP_Spannung_Wert, DEC);
@@ -693,8 +710,8 @@ void loop() {
   anzloop++;
   if (anzloop < 5) MyTicks = 500;
 
-#ifdef NOSIM
-  if (((anzloop % (2 * 3)) == 0) && (anzloop < (2 * 7))) {
+#ifndef SIM
+  if (((anzloop % (2 * 3)) == 0) && (anzloop < (2 * 20))) {
     if ((Control == 1) && (Wallbox == 0)) {
       ssd1306_clearScreen();
       ssd1306_printFixedN(10, OLED_hight, "OFF ", STYLE_NORMAL, FONT_SIZE_4X);
@@ -703,7 +720,16 @@ void loop() {
       ssd1306_clearScreen();
       sprintf(output, "C:%ld", Wallbox);
       ssd1306_printFixed2x(1, 0, output, STYLE_NORMAL);
-      ssd1306_printFixedN(0, OLED_hight, "READY", STYLE_NORMAL, FONT_SIZE_4X);
+      if ( CP_Spannung == CP_OFF ) {
+        ssd1306_printFixedN(0, OLED_hight, "CPOFF", STYLE_NORMAL, FONT_SIZE_4X);
+      } else if ( CP_Spannung == PLUS_12V ) {
+        ssd1306_printFixedN(0, OLED_hight, "CP ON", STYLE_NORMAL, FONT_SIZE_4X);
+      } else if ( CP_Spannung == PLUS_9V ) {
+        ssd1306_printFixedN(0, OLED_hight, " CAR ", STYLE_NORMAL, FONT_SIZE_4X);
+      } else if ( CP_Spannung == PLUS_6V ) {
+        ssd1306_printFixedN(0, OLED_hight, "LOAD ", STYLE_NORMAL, FONT_SIZE_4X);
+      } else
+        ssd1306_printFixedN(0, OLED_hight, "ERROR", STYLE_NORMAL, FONT_SIZE_4X);
     }
     else if (Control > 1) {
       ssd1306_clearScreen();
@@ -720,37 +746,43 @@ void loop() {
     mfrc522.PCD_AntennaOn(); // Reader aktivieren
   }
 
-  if ((anzloop % (2 * 60 * 3)) == 0 )
+  if ((anzloop % (2 * 60 * 25)) == 0 )
   {
     ssd1306_displayOff();
     MyTicks = 1000;
   }
 #endif
 
-  if (((anzloop % (2 * 60 * 15)) == 0) && (Control > 1) && (Wallbox <= 1)) {
-#ifdef NOSIM
-    screen_init();
-    ssd1306_printFixedN(0, 0, "OF", STYLE_NORMAL, FONT_SIZE_8X);
-#endif
-    delay(500);
-    load_stop();
-    digitalWrite (Relais2, HIGH);
-    delay(100);
-    digitalWrite (EVSELED, LOW);
-    Serial.println("#W0");
-    delay(500);
-    digitalWrite (Relais1, HIGH);
-    Serial.println("#C0");
-    beep();
-    beep();
-    beep();
-    delay(10000);
-    //    lacocaratscha();
-    Control = 1;
-    Wallbox = 2;
-#ifdef NOSIM
-    ssd1306_printFixedN(10, OLED_hight, "WAIT ", STYLE_NORMAL, FONT_SIZE_4X);
-#endif
-    MyTicks = 5000;
-  }
+  /*
+    if (((anzloop % (2 * 60 * 15)) == 0) && (Control > 1) && (Wallbox <= 1)) {
+    #ifndef SIM
+      //    screen_init();
+      ssd1306_printFixedN(0, 0, "OF", STYLE_NORMAL, FONT_SIZE_8X);
+    #endif
+      delay(500);
+      load_stop();
+      digitalWrite (Relais2, HIGH);
+      delay(100);
+      digitalWrite (EVSELED, LOW);
+      Serial.println("#W0");
+      delay(500);
+      digitalWrite (Relais1, HIGH);
+      Serial.println("#C0");
+      beep();
+      beep();
+      beep();
+      delay(10000);
+      //    lacocaratscha();
+      Control = 1;
+      Wallbox = 2;
+    #ifndef SIM
+      //    ssd1306_printFixedN(10, OLED_hight, "WAIT ", STYLE_NORMAL, FONT_SIZE_4X);
+    #endif
+      MyTicks = 5000;
+    }
+  */
+
+  //  sprintf(output, "loop:%ld", anzloop);
+  //  ssd1306_printFixed2x(1, 0, output, STYLE_NORMAL);
+
 }
